@@ -39,6 +39,7 @@ Optional packages:
 
 Build:
 
+  % autoreconf -fi
   % ./configure
   % make
   % make install
