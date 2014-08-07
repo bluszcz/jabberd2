@@ -1,0 +1,15 @@
+Right now a location of Diffie–Hellman params file is being hardcoded:
+
+/opt/jabberd2/etc/dh-2048.pem
+
+If you want to change the location you need to edit a following file:
+
+```
+sx/ssl.c
+```
+
+To try alpha Forward Secrecy you need to compile also with:
+
+```
+--enable-experimental=yes
+```
