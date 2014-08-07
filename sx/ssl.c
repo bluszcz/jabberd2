@@ -657,12 +657,8 @@ static void _sx_ssl_client(sx_t s, sx_plugin_t p) {
     sc->ssl = SSL_new(ctx);
     SSL_set_bio(sc->ssl, sc->rbio, sc->wbio);
     SSL_set_connect_state(sc->ssl);
-    SSL_set_options(sc->ssl, SSL_OP_NO_TICKET);
-#ifdef ENABLE_EXPERIMENTAL
-    SSL_set_ssl_method(sc->ssl, TLSv1_2_client_method());
-#else
-    SSL_set_ssl_method(sc->ssl, TLSv1_client_method());
-#endif
+    SSL_set_options(sc->ssl, SSL_OP_NO_SSLv2|SSL_OP_NO_TLSv1|SSL_OP_NO_TICKET);
+    SSL_set_ssl_method(sc->ssl, SSLv23_client_method());
 
     /* empty external_id */
     for (i = 0; i < SX_CONN_EXTERNAL_ID_MAX_COUNT; i++)
@@ -759,7 +755,7 @@ static void _sx_ssl_server(sx_t s, sx_plugin_t p) {
     sc->ssl = SSL_new(ctx);
     SSL_set_bio(sc->ssl, sc->rbio, sc->wbio);
     SSL_set_accept_state(sc->ssl);
-    SSL_set_options(sc->ssl, SSL_OP_NO_SSLv3);
+    SSL_set_options(sc->ssl, SSL_OP_NO_SSLv2|SSL_OP_NO_TLSv1);
 
     /* empty external_id */
     for (i = 0; i < SX_CONN_EXTERNAL_ID_MAX_COUNT; i++)
@@ -1007,11 +1003,7 @@ int sx_ssl_server_addcert(sx_plugin_t p, const char *name, const char *pemfile, 
     ERR_clear_error();
 
     /* create the context */
-#ifdef ENABLE_EXPERIMENTAL
-    ctx = SSL_CTX_new(TLSv1_2_method());
-#else
     ctx = SSL_CTX_new(SSLv23_method());
-#endif
     if(ctx == NULL) {
         _sx_debug(ZONE, "ssl context creation failed; %s", ERR_error_string(ERR_get_error(), NULL));
         return 1;
@@ -1022,11 +1014,36 @@ int sx_ssl_server_addcert(sx_plugin_t p, const char *name, const char *pemfile, 
      SSL_CTX_set_tmp_ecdh_callback(ctx, sx_ssl_tmp_ecdh_callback);
 
     // Set allowed ciphers
-       if (SSL_CTX_set_cipher_list(ctx, "ECDHE-RSA-AES128-SHA256:AES128-GCM-SHA256:HIGH:!MD5:!LOW:!SSLv2:!EXP:!aNULL:!EDH:!RC4") != 1) {
+    // http://prosody.im/doc/advanced_ssl_config
+    // Also consulted ciphers on jdev@conference.jabber.org
+       if (SSL_CTX_set_cipher_list(ctx, "HIGH+kEDH:HIGH+kEECDH:HIGH:!PSK:!SRP:!3DES:!aNULL") != 1) {
         _sx_debug(ZONE, "Can't set cipher list for SSL context: %s", ERR_error_string(ERR_get_error(), NULL));
         SSL_CTX_free(ctx);
         return 1;
     }
+#ifdef ENABLE_EXPERIMENTAL
+
+    /* DH Param */
+
+    // TODO: Should be parameterized - taken from the config files
+    BIO* bio = BIO_new_file("/opt/jabberd2/etc/dh-2048.pem", "r");
+      // Did we get a handle to the file?
+    if (bio == NULL) {
+        _sx_debug(ZONE, "Couldn't open DH param file!");
+        return 1;
+    }
+    // Read in the DH params.
+    DH* ret_dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+    // Free up the BIO object.
+    BIO_free(bio);
+    // Set up our SSL_CTX to use the DH parameters.
+    if (SSL_CTX_set_tmp_dh(ctx, ret_dh) < 0) {
+        _sx_debug(ZONE, "Couldn't set DH parameters!");
+    return 1;
+    }
+
+#endif
+
 
     /* Load the CA chain, if configured */
     if (cachain != NULL) {
